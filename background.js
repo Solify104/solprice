@@ -1,30 +1,48 @@
-// Object to store the latest exchange rates
 let exchangeRates = {
   usd: 0,
 };
 
-// Function to fetch SOL price in USD from the proxy server
-async function fetchExchangeRates() {
-  try {
-    const response = await fetch("https://solify-it-proxy.onrender.com/sol-price");
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
+async function fetchExchangeRates(attempts = 3, delay = 5000) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      console.log(`Fetching SOL price, attempt ${i + 1} of ${attempts}...`);
+      const response = await fetch("https://solify-it-proxy.onrender.com/sol-price", {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        console.error('Failed to fetch SOL price, status:', response.status, 'statusText:', response.statusText);
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.error) {
+        console.error('Proxy server returned an error:', data.error);
+        throw new Error(data.error);
+      }
+      if (!data.usd || typeof data.usd !== 'number') {
+        console.error('Invalid SOL price data:', data);
+        throw new Error('Invalid SOL price data');
+      }
+      exchangeRates = {
+        usd: data.usd,
+      };
+      chrome.storage.local.set({ exchangeRates }, () => {
+        console.log('Exchange rates updated:', exchangeRates);
+      });
+      return; // Success, exit the loop
+    } catch (error) {
+      console.error('Error fetching exchange rates:', error.message, 'error details:', error);
+      if (i < attempts - 1) {
+        console.log(`Retrying in ${delay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error('All attempts to fetch SOL price failed.');
+        // Retry again after 10 seconds if all attempts fail
+        setTimeout(() => fetchExchangeRates(attempts, delay), 10000);
+      }
     }
-    const data = await response.json();
-    if (data.error) {
-      throw new Error(data.error);
-    }
-    exchangeRates = {
-      usd: data.usd,
-    };
-    // Store the rates in chrome.storage.local
-    chrome.storage.local.set({ exchangeRates }, () => {
-      console.log("Exchange rates updated:", exchangeRates);
-    });
-  } catch (error) {
-    console.error("Error fetching exchange rates:", error);
-    // Retry after 10 seconds if the fetch fails
-    setTimeout(fetchExchangeRates, 10000);
   }
 }
 
@@ -37,13 +55,8 @@ setInterval(fetchExchangeRates, 300000);
 // Listen for messages from the content script or popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "getExchangeRates") {
-    // Send the latest exchange rates
     sendResponse({ exchangeRates });
   } else if (message.type === "getSolPrice") {
-    // For compatibility with content.js, which expects solPriceInGbp and gbpToUsdRate
-    // Since we're only using USD now, we'll mock these values
-    // Assuming content.js converts everything to GBP internally, we can set gbpToUsdRate to 1
-    // and solPriceInGbp to the USD price (this is a simplification since we're not fetching GBP)
     sendResponse({
       solPriceInGbp: exchangeRates.usd, // Simplified: treat USD price as GBP price
       gbpToUsdRate: 1, // Simplified: no conversion needed
