@@ -93,8 +93,8 @@ function convertPrices(pricesData) {
     return;
   }
 
-  solPriceInUsd = pricesData.solPriceInUsd; // Updated to match background.js
-  const gbpToUsdRate = pricesData.gbpToUsdRate || 1; // Use 1 if not provided
+  solPriceInUsd = pricesData.solPriceInUsd;
+  const gbpToUsdRate = pricesData.gbpToUsdRate || 1;
   console.log("convertPrices called with SOL price (in USD):", solPriceInUsd, "GBP to USD rate:", gbpToUsdRate);
 
   if (solPriceInUsd === 0) {
@@ -132,7 +132,7 @@ function convertPrices(pricesData) {
       const currency = priceText.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(priceText.replace(/[£$,\s]/g, ""));
       if (currency === "GBP") {
-        priceValue *= gbpToUsdRate; // Convert GBP to USD
+        priceValue *= gbpToUsdRate;
       }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${priceText} (${currency}) to ${solValue} SOL (Amazon price)`);
@@ -193,7 +193,7 @@ function convertPrices(pricesData) {
       const currency = match.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
       if (currency === "GBP") {
-        priceValue *= gbpToUsdRate; // Convert GBP to USD
+        priceValue *= gbpToUsdRate;
       }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL`);
@@ -238,7 +238,7 @@ function convertPrices(pricesData) {
       const currency = match.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
       if (currency === "GBP") {
-        priceValue *= gbpToUsdRate; // Convert GBP to USD
+        priceValue *= gbpToUsdRate;
       }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL (from attribute)`);
@@ -301,24 +301,59 @@ function revertPrices() {
 }
 
 function requestSolPrice() {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "getSolPrice" }, (response) => {
-      if (response && response.solPriceInUsd) {
-        console.log("Received SOL price from background:", response);
-        resolve(response);
-      } else {
-        console.error("Failed to get SOL price, response:", response);
-        setTimeout(() => {
-          resolve(requestSolPrice());
-        }, 5000);
-      }
-    });
+  return new Promise((resolve, reject) => {
+    // Check if the extension context is still valid
+    if (!chrome.runtime || !chrome.runtime.id) {
+      console.error("Extension context invalidated, cannot send message.");
+      reject(new Error("Extension context invalidated"));
+      return;
+    }
+
+    let attempts = 3;
+    const delay = 5000;
+
+    const trySendMessage = (attempt) => {
+      chrome.runtime.sendMessage({ type: "getSolPrice" }, (response) => {
+        // Check for runtime errors (e.g., context invalidated)
+        if (chrome.runtime.lastError) {
+          console.error("Error sending message:", chrome.runtime.lastError.message);
+          if (attempt > 1) {
+            console.log(`Retrying in ${delay / 1000} seconds... (${attempt - 1} attempts left)`);
+            setTimeout(() => trySendMessage(attempt - 1), delay);
+          } else {
+            console.error("All attempts to send message failed.");
+            reject(new Error("Failed to communicate with background script"));
+          }
+          return;
+        }
+
+        if (response && response.solPriceInUsd) {
+          console.log("Received SOL price from background:", response);
+          resolve(response);
+        } else {
+          console.error("Failed to get SOL price, response:", response);
+          if (attempt > 1) {
+            console.log(`Retrying in ${delay / 1000} seconds... (${attempt - 1} attempts left)`);
+            setTimeout(() => trySendMessage(attempt - 1), delay);
+          } else {
+            console.error("All attempts to fetch SOL price failed.");
+            reject(new Error("Failed to fetch SOL price"));
+          }
+        }
+      });
+    };
+
+    trySendMessage(attempts);
   });
 }
 
 const debouncedConvertPrices = debounce(async () => {
-  const pricesData = await requestSolPrice();
-  convertPrices(pricesData);
+  try {
+    const pricesData = await requestSolPrice();
+    convertPrices(pricesData);
+  } catch (error) {
+    console.error("Error in debouncedConvertPrices:", error.message);
+  }
 }, 500);
 
 function debounce(func, wait) {
@@ -356,11 +391,8 @@ observer.observe(document.body, {
   characterData: true,
 });
 
+// Simplified initial calls: one initial call after 2 seconds
 setTimeout(debouncedConvertPrices, 2000);
-setTimeout(debouncedConvertPrices, 5000);
-setTimeout(debouncedConvertPrices, 10000);
-setTimeout(debouncedConvertPrices, 15000);
-setTimeout(debouncedConvertPrices, 20000);
 
 chrome.storage.local.get("isEnabled", (data) => {
   isEnabled = data.isEnabled || false;
