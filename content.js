@@ -1,20 +1,3 @@
-// Check if the page is a restricted URL before running the content script
-const currentUrl = window.location.href;
-if (
-  currentUrl.startsWith("chrome://") ||
-  currentUrl.startsWith("chrome-extension://") ||
-  currentUrl.startsWith("about:") ||
-  currentUrl.startsWith("file://") ||
-  currentUrl === "" ||
-  currentUrl === "about:blank" ||
-  currentUrl.includes("chrome-extension://") ||
-  currentUrl.includes("chrome.google.com/webstore") ||
-  currentUrl.includes("edge://")
-) {
-  console.log("Content script cannot run on this page:", currentUrl);
-  return;
-}
-
 let isEnabled = false;
 let solPriceInUsd = 0;
 const originalPrices = new Map();
@@ -55,7 +38,7 @@ function collectPriceAttributes(node, elements = []) {
     const attrs = node.attributes;
     for (let attr of attrs) {
       const attrValue = attr.value;
-      if (attrValue && /[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(attrValue)) {
+      if (attrValue && /[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(attrValue)) {
         elements.push({ element: node, attrName: attr.name, attrValue });
       }
     }
@@ -83,7 +66,7 @@ function collectAmazonPriceElements(node, elements = []) {
       const priceElement = node.querySelector(".a-offscreen");
       if (priceElement) {
         const priceText = priceElement.textContent.trim();
-        if (/[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
+        if (/[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
           elements.push({ element: priceElement, priceText });
         }
       }
@@ -111,27 +94,21 @@ function convertPrices(pricesData) {
   }
 
   solPriceInUsd = pricesData.solPriceInUsd;
-  const exchangeRates = pricesData.exchangeRates || {};
-  const gbpToUsdRate = exchangeRates.gbpToUsdRate || 1;
-  const eurToUsdRate = exchangeRates.eurToUsdRate || 1;
-  const cadToUsdRate = exchangeRates.cadToUsdRate || 1;
-  const jpyToUsdRate = exchangeRates.jpyToUsdRate || 1;
-  const cnyToUsdRate = exchangeRates.cnyToUsdRate || 1;
-
-  console.log("convertPrices called with SOL price (in USD):", solPriceInUsd, "Exchange rates:", exchangeRates);
+  const gbpToUsdRate = pricesData.gbpToUsdRate || 1;
+  console.log("convertPrices called with SOL price (in USD):", solPriceInUsd, "GBP to USD rate:", gbpToUsdRate);
 
   if (solPriceInUsd === 0) {
     console.log("SOL price is 0, cannot convert prices.");
     return;
   }
 
-  const priceRegex = /[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/g;
+  const priceRegex = /[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/g;
   console.log("Testing priceRegex on $19.99:", priceRegex.test("$19.99"));
   console.log("Testing priceRegex on £29.99:", priceRegex.test("£29.99"));
-  console.log("Testing priceRegex on €39.99:", priceRegex.test("€39.99"));
-  console.log("Testing priceRegex on C$49.99:", priceRegex.test("C$49.99"));
-  console.log("Testing priceRegex on ¥5999:", priceRegex.test("¥5999"));
-  console.log("Testing priceRegex on CN¥6999:", priceRegex.test("CN¥6999"));
+  console.log("Testing priceRegex on $1,000:", priceRegex.test("$1,000"));
+  console.log("Testing priceRegex on £1,000:", priceRegex.test("£1,000"));
+  console.log("Testing priceRegex on $25.49:", priceRegex.test("$25.49"));
+  console.log("Testing priceRegex on $29.99:", priceRegex.test("$29.99"));
 
   const textNodes = collectTextNodes(document.body);
   console.log("Collected text nodes:", textNodes.length);
@@ -152,24 +129,11 @@ function convertPrices(pricesData) {
       const priceId = generatePriceId();
       originalPrices.set(priceId, { text: priceText, element, type: "amazon-price" });
 
-      let currency = "USD";
-      let exchangeRate = 1;
-      if (priceText.startsWith("£")) {
-        currency = "GBP";
-        exchangeRate = gbpToUsdRate;
-      } else if (priceText.startsWith("€")) {
-        currency = "EUR";
-        exchangeRate = eurToUsdRate;
-      } else if (priceText.startsWith("C$")) {
-        currency = "CAD";
-        exchangeRate = cadToUsdRate;
-      } else if (priceText.startsWith("¥") || priceText.startsWith("CN¥")) {
-        currency = priceText.startsWith("CN¥") ? "CNY" : "JPY";
-        exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
+      const currency = priceText.startsWith("£") ? "GBP" : "USD";
+      let priceValue = parseFloat(priceText.replace(/[£$,\s]/g, ""));
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate;
       }
-
-      let priceValue = parseFloat(priceText.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
-      priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${priceText} (${currency}) to ${solValue} SOL (Amazon price)`);
 
@@ -204,7 +168,7 @@ function convertPrices(pricesData) {
 
       if (!priceRegex.test(text)) {
         console.log("No price found in text, skipping:", text);
-        if (text.match(/[£\$€C\$¥CN¥]/)) {
+        if (text.includes("$") || text.includes("£")) {
           console.log("Potential price not matched by regex:", text, "Parent element:", parent);
         }
         return;
@@ -226,24 +190,11 @@ function convertPrices(pricesData) {
         fragment.appendChild(document.createTextNode(beforePrice));
       }
 
-      let currency = "USD";
-      let exchangeRate = 1;
-      if (match.startsWith("£")) {
-        currency = "GBP";
-        exchangeRate = gbpToUsdRate;
-      } else if (match.startsWith("€")) {
-        currency = "EUR";
-        exchangeRate = eurToUsdRate;
-      } else if (match.startsWith("C$")) {
-        currency = "CAD";
-        exchangeRate = cadToUsdRate;
-      } else if (match.startsWith("¥") || match.startsWith("CN¥")) {
-        currency = match.startsWith("CN¥") ? "CNY" : "JPY";
-        exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
+      const currency = match.startsWith("£") ? "GBP" : "USD";
+      let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate;
       }
-
-      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
-      priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL`);
 
@@ -284,24 +235,11 @@ function convertPrices(pricesData) {
       const priceId = generatePriceId();
       originalPrices.set(priceId, { text: attrValue, element, attrName, type: "attribute" });
 
-      let currency = "USD";
-      let exchangeRate = 1;
-      if (match.startsWith("£")) {
-        currency = "GBP";
-        exchangeRate = gbpToUsdRate;
-      } else if (match.startsWith("€")) {
-        currency = "EUR";
-        exchangeRate = eurToUsdRate;
-      } else if (match.startsWith("C$")) {
-        currency = "CAD";
-        exchangeRate = cadToUsdRate;
-      } else if (match.startsWith("¥") || match.startsWith("CN¥")) {
-        currency = match.startsWith("CN¥") ? "CNY" : "JPY";
-        exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
+      const currency = match.startsWith("£") ? "GBP" : "USD";
+      let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate;
       }
-
-      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
-      priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL (from attribute)`);
 

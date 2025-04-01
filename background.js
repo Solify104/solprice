@@ -1,10 +1,6 @@
 let exchangeRates = {
   usd: 0,
-  gbpToUsdRate: 1,
-  eurToUsdRate: 1,
-  cadToUsdRate: 1,
-  jpyToUsdRate: 1,
-  cnyToUsdRate: 1,
+  gbpToUsdRate: 1, // Default to 1 until fetched
 };
 
 let isFetching = false; // Debounce flag to prevent overlapping fetches
@@ -42,11 +38,7 @@ async function fetchExchangeRates(attempts = 3, delay = 5000) {
         }
         exchangeRates = {
           usd: data.usd,
-          gbpToUsdRate: data.exchangeRates.gbpToUsdRate || 1,
-          eurToUsdRate: data.exchangeRates.eurToUsdRate || 1,
-          cadToUsdRate: data.exchangeRates.cadToUsdRate || 1,
-          jpyToUsdRate: data.exchangeRates.jpyToUsdRate || 1,
-          cnyToUsdRate: data.exchangeRates.cnyToUsdRate || 1,
+          gbpToUsdRate: data.gbpToUsdRate || 1, // Use 1 if not provided
         };
         chrome.storage.local.set({ exchangeRates }, () => {
           console.log('Exchange rates updated:', exchangeRates);
@@ -90,14 +82,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ exchangeRates });
   } else if (message.type === "getSolPrice") {
     sendResponse({
-      solPriceInUsd: exchangeRates.usd,
-      exchangeRates: {
-        gbpToUsdRate: exchangeRates.gbpToUsdRate,
-        eurToUsdRate: exchangeRates.eurToUsdRate,
-        cadToUsdRate: exchangeRates.cadToUsdRate,
-        jpyToUsdRate: exchangeRates.jpyToUsdRate,
-        cnyToUsdRate: exchangeRates.cnyToUsdRate,
-      },
+      solPriceInUsd: exchangeRates.usd, // Renamed for clarity
+      gbpToUsdRate: exchangeRates.gbpToUsdRate,
     });
   }
 });
