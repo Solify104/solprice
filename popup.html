@@ -1,88 +1,58 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Solana Price Converter</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solify It</title>
   <style>
     body {
-      width: 250px; /* Updated width */
-      height: 370px; /* Updated height */
-      padding: 0; /* Remove padding to fit the button snugly */
-      margin: 0; /* Remove default margin */
       font-family: Arial, sans-serif;
-      display: flex; /* Center the button */
-      justify-content: center; /* Center horizontally */
-      align-items: center; /* Center vertically */
-      /* Set the background image */
-      background-image: url('background.jpg');
-      background-size: cover; /* Scale the image to cover the popup */
-      background-position: center; /* Center the image */
-      /* Add a subtle shadow for a floating effect */
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+      width: 300px;
+      padding: 10px;
+      background-color: #f5f5f5;
+      text-align: center;
     }
-    /* Style the power button icon */
     #toggleButton {
-      width: 70px; /* Size of the icon */
-      height: 70px;
-      background-image: url('power-button-off.png'); /* Default (off) state */
-      background-size: cover;
-      background-position: center;
-      border: none; /* Remove border since it's part of the PNG */
-      border-radius: 50%; /* Ensure circular shape */
+      background-color: #ccc;
+      color: white;
+      padding: 10px;
+      border: none;
+      border-radius: 5px;
       cursor: pointer;
-      transition: transform 0.2s ease; /* Smooth transitions for hover/click */
-      /* Position the button midway between "SOLIFY" text and the bottom */
-      position: absolute;
-      bottom: 60px; /* Adjusted for new height */
-      /* Add a shadow for contrast */
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      width: 100%;
+      font-size: 16px;
+      margin-bottom: 10px;
     }
     #toggleButton.enabled {
-      background-image: url('power-button-on.png'); /* On state */
+      background-color: #4CAF50;
     }
     #toggleButton:hover {
-      transform: scale(1.1); /* Slight scale on hover for interactivity */
-    }
-    #toggleButton:active {
-      transform: scale(0.95); /* Slight shrink on click */
+      opacity: 0.9;
     }
     #errorText {
-      position: absolute;
-      bottom: 10px; /* Position at the bottom */
-      color: #ff6666; /* Light red for error */
+      color: red;
+      font-size: 14px;
+      margin-top: 10px;
       display: none;
-      font-size: 12px;
-      text-align: center;
-      width: 100%;
-      /* Add a shadow for better readability against the background */
-      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
     }
-    /* Style the price display in the bottom right */
-    #priceDisplay {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-      display: flex;
-      align-items: center;
-      color: #ffffff; /* White text for contrast */
-      font-size: 12px;
+    #solPrice {
+      font-size: 16px;
+      margin: 10px 0;
       font-weight: bold;
-      /* Add a shadow for better readability against the background */
-      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
     }
-    #solanaIcon {
-      width: 20px;
-      height: 20px;
-      margin-right: 5px; /* Space between icon and price */
+    #exchangeRates {
+      font-size: 12px;
+      color: #555;
+      margin-top: 10px;
+      text-align: left;
     }
   </style>
 </head>
 <body>
-  <div id="toggleButton"></div>
+  <button id="toggleButton">Toggle Extension</button>
+  <div id="solPrice">Loading SOL price...</div>
+  <div id="exchangeRates">Loading exchange rates...</div>
   <div id="errorText"></div>
-  <div id="priceDisplay">
-    <img id="solanaIcon" src="solana-icon.png" alt="Solana Icon" />
-    <span id="solPrice">$0.00</span>
-  </div>
   <script src="popup.js"></script>
 </body>
 </html>
