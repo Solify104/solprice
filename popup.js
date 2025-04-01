@@ -25,7 +25,6 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
           console.error("Failed to fetch SOL price, response:", response);
           solPriceElement.textContent = "Price unavailable";
-          // Retry after 5 seconds if the price is unavailable
           setTimeout(fetchSolPrice, 5000);
           resolve();
         }

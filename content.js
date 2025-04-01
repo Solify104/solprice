@@ -1,151 +1,101 @@
-console.log("Content script is running! Frame ID:", window.frameElement ? window.frameElement.id : "main document");
-
 let isEnabled = false;
-let solPriceInUsd = 0; // Changed from solPriceInGbp to solPriceInUsd
+let solPriceInUsd = 0;
 const originalPrices = new Map();
 
-// Function to generate a unique ID for each price element
-let priceCounter = 0;
 function generatePriceId() {
-  return `price-${priceCounter++}`;
+  return "price-" + Math.random().toString(36).substr(2, 9);
 }
 
-// Debounce function to limit how often convertPrices runs
-function debounce(func, wait) {
-  let timeout;
-  return function (...args) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
-  };
-}
+function collectTextNodes(node, textNodes = []) {
+  if (!node) return textNodes;
 
-// Function to collect text nodes, including those in shadow DOM and iframes
-function collectTextNodes(root) {
-  const textNodes = [];
-  try {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      textNodes.push({ node, parent: node.parentNode });
+  if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim()) {
+    textNodes.push({ node, parent: node.parentNode });
+  } else if (node.nodeType === Node.ELEMENT_NODE) {
+    if (node.tagName === "SCRIPT" || node.tagName === "STYLE") {
+      return textNodes;
     }
-    const elements = root.querySelectorAll("*");
-    elements.forEach((element) => {
-      if (element.shadowRoot) {
-        console.log("Found shadow DOM, traversing...");
-        textNodes.push(...collectTextNodes(element.shadowRoot));
-      }
-    });
-    const iframes = root.querySelectorAll("iframe");
-    iframes.forEach((iframe) => {
-      try {
-        if (iframe.contentDocument) {
-          console.log("Found iframe, traversing contentDocument...");
-          console.log("Iframe sandbox attribute:", iframe.getAttribute("sandbox"));
-          textNodes.push(...collectTextNodes(iframe.contentDocument));
-        } else {
-          console.log("Cannot access iframe contentDocument (cross-origin or sandboxed).");
-        }
-      } catch (error) {
-        console.error("Error accessing iframe contentDocument:", error);
-      }
-    });
-  } catch (error) {
-    console.error("Error collecting text nodes from DOM, shadow DOM, or iframes:", error);
+
+    if (node.shadowRoot) {
+      collectTextNodes(node.shadowRoot, textNodes);
+    }
+
+    for (let child of node.childNodes) {
+      collectTextNodes(child, textNodes);
+    }
+
+    if (node.tagName === "IFRAME" && node.contentDocument) {
+      collectTextNodes(node.contentDocument.body, textNodes);
+    }
   }
   return textNodes;
 }
 
-// Function to collect elements with price-like attributes
-function collectPriceAttributes(root) {
-  const elementsWithPrices = [];
-  const priceRegex = /[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/;
-  try {
-    const elements = root.querySelectorAll("*");
-    elements.forEach((element) => {
-      for (const attr of element.attributes) {
-        const attrValue = attr.value;
-        if (priceRegex.test(attrValue)) {
-          console.log(`Found price in attribute: ${attr.name}="${attrValue}" on element:`, element);
-          elementsWithPrices.push({ element, attrName: attr.name, attrValue });
-        } else if (attrValue.includes("$") || attrValue.includes("£")) {
-          console.log(`Potential price in attribute not matched by regex: ${attr.name}="${attrValue}" on element:`, element);
-        }
+function collectPriceAttributes(node, elements = []) {
+  if (!node) return elements;
+
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const attrs = node.attributes;
+    for (let attr of attrs) {
+      const attrValue = attr.value;
+      if (attrValue && /[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(attrValue)) {
+        elements.push({ element: node, attrName: attr.name, attrValue });
       }
-      if (element.shadowRoot) {
-        elementsWithPrices.push(...collectPriceAttributes(element.shadowRoot));
-      }
-      const iframes = root.querySelectorAll("iframe");
-      iframes.forEach((iframe) => {
-        try {
-          if (iframe.contentDocument) {
-            console.log("Found iframe, traversing contentDocument for attributes...");
-            console.log("Iframe sandbox attribute:", iframe.getAttribute("sandbox"));
-            elementsWithPrices.push(...collectPriceAttributes(iframe.contentDocument));
-          }
-        } catch (error) {
-          console.error("Error accessing iframe contentDocument for attributes:", error);
-        }
-      });
-    });
-  } catch (error) {
-    console.error("Error collecting price attributes:", error);
+    }
+
+    if (node.shadowRoot) {
+      collectPriceAttributes(node.shadowRoot, elements);
+    }
+
+    for (let child of node.childNodes) {
+      collectPriceAttributes(child, elements);
+    }
+
+    if (node.tagName === "IFRAME" && node.contentDocument) {
+      collectPriceAttributes(node.contentDocument.body, elements);
+    }
   }
-  return elementsWithPrices;
+  return elements;
 }
 
-// Function to collect Amazon price elements (e.g., class="a-price")
-function collectAmazonPriceElements(root) {
-  const priceElements = [];
-  try {
-    const elements = root.querySelectorAll(".a-price, .a-offscreen, [data-a-price]");
-    elements.forEach((element) => {
-      let priceText = "";
-      const symbol = element.querySelector(".a-price-symbol")?.textContent || "";
-      const whole = element.querySelector(".a-price-whole")?.textContent || "";
-      const decimal = element.querySelector(".a-price-decimal")?.textContent || "";
-      const fraction = element.querySelector(".a-price-fraction")?.textContent || "";
-      priceText = `${symbol}${whole}${decimal}${fraction}`.trim();
-      if (element.classList.contains("a-offscreen")) {
-        priceText = element.textContent.trim();
-      }
-      if (priceText && /[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
-        console.log(`Found Amazon price element: ${priceText}`, element);
-        priceElements.push({ element, priceText });
-      } else if (priceText.includes("$") || priceText.includes("£")) {
-        console.log(`Potential Amazon price not matched by regex: ${priceText}`, element);
-      }
-    });
-    const elementsWithShadow = root.querySelectorAll("*");
-    elementsWithShadow.forEach((element) => {
-      if (element.shadowRoot) {
-        priceElements.push(...collectAmazonPriceElements(element.shadowRoot));
-      }
-    });
-    const iframes = root.querySelectorAll("iframe");
-    iframes.forEach((iframe) => {
-      try {
-        if (iframe.contentDocument) {
-          priceElements.push(...collectAmazonPriceElements(iframe.contentDocument));
+function collectAmazonPriceElements(node, elements = []) {
+  if (!node) return elements;
+
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    if (node.classList.contains("a-price")) {
+      const priceElement = node.querySelector(".a-offscreen");
+      if (priceElement) {
+        const priceText = priceElement.textContent.trim();
+        if (/[£\$]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
+          elements.push({ element: priceElement, priceText });
         }
-      } catch (error) {
-        console.error("Error accessing iframe contentDocument for Amazon prices:", error);
       }
-    });
-  } catch (error) {
-    console.error("Error collecting Amazon price elements:", error);
+    }
+
+    if (node.shadowRoot) {
+      collectAmazonPriceElements(node.shadowRoot, elements);
+    }
+
+    for (let child of node.childNodes) {
+      collectAmazonPriceElements(child, elements);
+    }
+
+    if (node.tagName === "IFRAME" && node.contentDocument) {
+      collectAmazonPriceElements(node.contentDocument.body, elements);
+    }
   }
-  return priceElements;
+  return elements;
 }
 
-// Function to convert prices
 function convertPrices(pricesData) {
   if (!isEnabled) {
     console.log("Extension is disabled, skipping price conversion.");
     return;
   }
 
-  solPriceInUsd = pricesData.solPriceInGbp; // Using the USD price directly
-  console.log("convertPrices called with SOL price (in USD):", solPriceInUsd);
+  solPriceInUsd = pricesData.solPriceInUsd; // Updated to match background.js
+  const gbpToUsdRate = pricesData.gbpToUsdRate || 1; // Use 1 if not provided
+  console.log("convertPrices called with SOL price (in USD):", solPriceInUsd, "GBP to USD rate:", gbpToUsdRate);
 
   if (solPriceInUsd === 0) {
     console.log("SOL price is 0, cannot convert prices.");
@@ -181,16 +131,15 @@ function convertPrices(pricesData) {
 
       const currency = priceText.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(priceText.replace(/[£$,\s]/g, ""));
-
-      // Since we're using USD price directly, assume all prices are in USD for simplicity
-      // If the price is in GBP, we'll need to fetch the GBP/USD rate in the future
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate; // Convert GBP to USD
+      }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${priceText} (${currency}) to ${solValue} SOL (Amazon price)`);
 
       const priceSpan = document.createElement("span");
       priceSpan.setAttribute("data-price-id", priceId);
 
-      // Replace SVG with the Solana icon
       const icon = document.createElement("img");
       icon.src = chrome.runtime.getURL("solana-icon.png");
       icon.setAttribute("width", "20");
@@ -243,14 +192,15 @@ function convertPrices(pricesData) {
 
       const currency = match.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
-
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate; // Convert GBP to USD
+      }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL`);
 
       const priceSpan = document.createElement("span");
       priceSpan.setAttribute("data-price-id", priceId);
 
-      // Replace SVG with the solsana icon
       const icon = document.createElement("img");
       icon.src = chrome.runtime.getURL("solana-icon.png");
       icon.setAttribute("width", "14");
@@ -287,14 +237,15 @@ function convertPrices(pricesData) {
 
       const currency = match.startsWith("£") ? "GBP" : "USD";
       let priceValue = parseFloat(match.replace(/[£$,\s]/g, ""));
-
+      if (currency === "GBP") {
+        priceValue *= gbpToUsdRate; // Convert GBP to USD
+      }
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL (from attribute)`);
 
       const priceSpan = document.createElement("span");
       priceSpan.setAttribute("data-price-id", priceId);
 
-      // Replace SVG with the Solana icon
       const icon = document.createElement("img");
       icon.src = chrome.runtime.getURL("solana-icon.png");
       icon.setAttribute("width", "14");
@@ -315,148 +266,106 @@ function convertPrices(pricesData) {
   console.log("Current state of originalPrices Map:", originalPrices.size);
 }
 
-// Function to revert prices to their original values
 function revertPrices() {
-  console.log("Reverting prices to original values...");
-  console.log("originalPrices Map size:", originalPrices.size);
-
-  originalPrices.forEach((data, priceId) => {
+  console.log("Reverting prices...");
+  for (const [priceId, { text, element, parent, attrName, type }] of originalPrices) {
     try {
-      if (data.type === "text") {
-        const { text, parent } = data;
-        console.log("Attempting to revert price with priceId:", priceId);
-        const priceSpan = parent.querySelector(`span[data-price-id="${priceId}"]`);
-        if (!priceSpan || !document.body.contains(parent)) {
-          console.log("Skipping price: span or parent no longer in the DOM, priceId:", priceId);
-          return;
-        }
-        const newTextNode = document.createTextNode(text);
-        parent.replaceChild(newTextNode, priceSpan);
-        console.log("Reverted price for priceId:", priceId, "to:", text);
-      } else if (data.type === "attribute") {
-        const { text, element, attrName } = data;
-        console.log("Attempting to revert attribute price with priceId:", priceId);
-        const priceSpan = element.querySelector(`span[data-price-id="${priceId}"]`);
-        if (priceSpan && document.body.contains(element)) {
-          element.removeChild(priceSpan);
-        }
-        element.setAttribute(attrName, text);
-        console.log("Reverted attribute price for priceId:", priceId, "to:", text);
-      } else if (data.type === "amazon-price") {
-        const { text, element } = data;
-        console.log("Attempting to revert Amazon price with priceId:", priceId);
+      if (type === "text") {
         const priceSpan = document.querySelector(`span[data-price-id="${priceId}"]`);
-        if (!priceSpan || !document.body.contains(priceSpan)) {
-          console.log("Skipping Amazon price: span no longer in the DOM, priceId:", priceId);
-          return;
+        if (priceSpan && parent && document.body.contains(priceSpan)) {
+          parent.insertBefore(document.createTextNode(text), priceSpan);
+          parent.removeChild(priceSpan);
+          console.log("Reverted text node, priceId:", priceId);
         }
-        const originalPriceSpan = document.createElement("span");
-        originalPriceSpan.className = "a-price";
-        originalPriceSpan.textContent = text;
-        priceSpan.parentNode.replaceChild(originalPriceSpan, priceSpan);
-        console.log("Reverted Amazon price for priceId:", priceId, "to:", text);
+      } else if (type === "attribute") {
+        const priceSpan = document.querySelector(`span[data-price-id="${priceId}"]`);
+        if (priceSpan && element && document.body.contains(element)) {
+          element.setAttribute(attrName, text);
+          element.removeChild(priceSpan);
+          console.log("Reverted attribute, priceId:", priceId);
+        }
+      } else if (type === "amazon-price") {
+        const priceSpan = document.querySelector(`span[data-price-id="${priceId}"]`);
+        if (priceSpan && element && document.body.contains(priceSpan)) {
+          element.textContent = text;
+          priceSpan.parentNode.replaceChild(element, priceSpan);
+          console.log("Reverted Amazon price element, priceId:", priceId);
+        }
       }
     } catch (error) {
-      console.error("Error reverting price for priceId:", priceId, error);
+      console.error("Error reverting price, priceId:", priceId, error);
     }
-  });
-
+  }
   originalPrices.clear();
-  console.log("Finished reverting prices. originalPrices Map size after clear:", originalPrices.size);
+  console.log("All prices reverted, originalPrices cleared.");
 }
 
-// Function to request SOL price with retry
-function requestSolPrice(attempts = 5, delay = 2000) {
-  console.log("Requesting SOL price, attempts left:", attempts);
-  chrome.runtime.sendMessage({ type: "getSolPrice" }, (response) => {
-    console.log("Received response from background script:", response);
-    if (response && response.solPriceInGbp > 0) {
-      solPriceInUsd = response.solPriceInGbp; // Using the USD price directly
-      convertPrices({ solPriceInGbp: solPriceInUsd });
-    } else if (attempts > 0) {
-      console.log("SOL price not ready, retrying...");
-      setTimeout(() => requestSolPrice(attempts - 1, delay), delay);
-    } else {
-      console.log("Failed to fetch SOL price after retries");
-    }
+function requestSolPrice() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "getSolPrice" }, (response) => {
+      if (response && response.solPriceInUsd) {
+        console.log("Received SOL price from background:", response);
+        resolve(response);
+      } else {
+        console.error("Failed to get SOL price, response:", response);
+        setTimeout(() => {
+          resolve(requestSolPrice());
+        }, 5000);
+      }
+    });
   });
 }
 
-// Set up a MutationObserver to handle dynamic content
-const debouncedConvertPrices = debounce(convertPrices, 300);
+const debouncedConvertPrices = debounce(async () => {
+  const pricesData = await requestSolPrice();
+  convertPrices(pricesData);
+}, 500);
 
-const observer = new MutationObserver((mutations) => {
-  if (isEnabled && solPriceInUsd > 0) {
-    console.log("DOM changed, scheduling price conversion...");
-    console.log("Mutations observed:", mutations.length);
-    debouncedConvertPrices({ solPriceInGbp: solPriceInUsd });
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(this, args), wait);
+  };
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("Message received in content script:", message);
+  if (message.type === "toggleState") {
+    isEnabled = message.isEnabled;
+    console.log("Toggled state to:", isEnabled);
+    if (isEnabled) {
+      debouncedConvertPrices();
+    } else {
+      revertPrices();
+    }
+    sendResponse({ status: "success" });
   }
 });
 
-try {
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-  });
-  console.log("MutationObserver set up successfully.");
-} catch (error) {
-  console.error("Error setting up MutationObserver:", error);
-}
-
-// Load the initial state and run the conversion if enabled
-try {
-  chrome.storage.local.get("isEnabled", (data) => {
-    isEnabled = data.isEnabled || false;
-    console.log("Initial isEnabled state:", isEnabled);
-    if (isEnabled) {
-      requestSolPrice();
-    } else {
-      console.log("Extension is disabled on page load.");
-    }
-  });
-} catch (error) {
-  console.error("Error accessing chrome.storage.local:", error);
-}
-
-// Listen for toggle messages from the popup
-console.log("Setting up message listener...");
-try {
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log("Message listener triggered, message received:", message);
-    if (message.type === "toggleState") {
-      console.log("Toggle state message received, isEnabled:", message.isEnabled);
-      isEnabled = message.isEnabled;
-      console.log("Toggle state changed, isEnabled:", isEnabled);
-
-      sendResponse({ status: "Toggle received" });
-      console.log("Response sent to popup: { status: 'Toggle received' }");
-
-      if (isEnabled) {
-        requestSolPrice();
-      } else {
-        revertPrices();
-      }
-    } else {
-      console.log("Unknown message type received:", message.type);
-    }
-    return true;
-  });
-  console.log("Message listener set up successfully.");
-} catch (error) {
-  console.error("Error setting up message listener:", error);
-}
-
-// Force multiple re-runs of convertPrices to catch late-loaded content
-const reRunIntervals = [2000, 5000, 10000, 15000, 20000];
-reRunIntervals.forEach((delay) => {
-  setTimeout(() => {
-    if (isEnabled && solPriceInUsd > 0) {
-      console.log(`Running delayed price conversion after ${delay}ms to catch late-loaded content...`);
-      convertPrices({ solPriceInGbp: solPriceInUsd });
-    }
-  }, delay);
+const observer = new MutationObserver((mutations) => {
+  console.log("DOM mutations observed:", mutations.length);
+  if (isEnabled) {
+    debouncedConvertPrices();
+  }
 });
 
-console.log("Content script loaded completely.");
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+  characterData: true,
+});
+
+setTimeout(debouncedConvertPrices, 2000);
+setTimeout(debouncedConvertPrices, 5000);
+setTimeout(debouncedConvertPrices, 10000);
+setTimeout(debouncedConvertPrices, 15000);
+setTimeout(debouncedConvertPrices, 20000);
+
+chrome.storage.local.get("isEnabled", (data) => {
+  isEnabled = data.isEnabled || false;
+  console.log("Initial state loaded:", isEnabled);
+  if (isEnabled) {
+    debouncedConvertPrices();
+  }
+});
