@@ -16,7 +16,22 @@ document.addEventListener("DOMContentLoaded", () => {
   // Function to fetch the live SOL price from the background script
   async function fetchSolPrice() {
     return new Promise((resolve) => {
+      // Check if the extension context is still valid
+      if (!chrome.runtime || !chrome.runtime.id) {
+        console.error("Extension context invalidated, cannot fetch SOL price.");
+        solPriceElement.textContent = "Price unavailable";
+        resolve();
+        return;
+      }
+
       chrome.runtime.sendMessage({ type: "getExchangeRates" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("Error fetching SOL price:", chrome.runtime.lastError.message);
+          solPriceElement.textContent = "Price unavailable";
+          resolve();
+          return;
+        }
+
         if (response && response.exchangeRates && response.exchangeRates.usd > 0) {
           const price = response.exchangeRates.usd;
           solPriceElement.textContent = `$${price.toFixed(2)}`;
@@ -58,29 +73,79 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 5000);
   }
 
-  // Function to send toggle message with retry
-  function sendToggleMessage(tabId, message, retries = 3, delay = 500) {
-    console.log(`Attempting to send message to tab ${tabId}:`, message);
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error(`Error sending message to tab ${tabId}:`, chrome.runtime.lastError);
-        if (retries > 0) {
-          console.log(`Retrying message send (${retries} attempts left)...`);
-          setTimeout(() => sendToggleMessage(tabId, message, retries - 1, delay), delay);
-        } else {
-          console.error("Error sending message to the content script after retries");
-          showError("Please refresh the page");
-        }
-      } else {
-        console.log("Message sent successfully, response:", response);
-        // Update button color based on the new state
-        if (message.isEnabled) {
-          toggleButton.classList.add("enabled");
-        } else {
-          toggleButton.classList.remove("enabled");
-        }
+  // Function to check if the content script is ready in the tab
+  function checkContentScriptReady(tabId) {
+    return new Promise((resolve, reject) => {
+      if (!chrome.runtime || !chrome.runtime.id) {
+        reject(new Error("Extension context invalidated"));
+        return;
       }
+
+      chrome.tabs.sendMessage(tabId, { type: "ping" }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (response && response.status === "pong") {
+          resolve(true);
+        } else {
+          reject(new Error("Content script not responding"));
+        }
+      });
     });
+  }
+
+  // Function to send toggle message with retry
+  async function sendToggleMessage(tabId, message, retries = 3, delay = 500) {
+    console.log(`Attempting to send message to tab ${tabId}:`, message);
+
+    // First, check if the content script is ready
+    try {
+      await checkContentScriptReady(tabId);
+      console.log("Content script is ready in tab", tabId);
+    } catch (error) {
+      console.error("Content script not ready:", error.message);
+      showError("Please refresh the page");
+      return;
+    }
+
+    // Proceed with sending the toggle message
+    const trySendMessage = (attempt) => {
+      return new Promise((resolve, reject) => {
+        if (!chrome.runtime || !chrome.runtime.id) {
+          reject(new Error("Extension context invalidated"));
+          return;
+        }
+
+        chrome.tabs.sendMessage(tabId, message, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(`Error sending message to tab ${tabId}:`, chrome.runtime.lastError);
+            if (attempt > 1) {
+              console.log(`Retrying message send (${attempt - 1} attempts left)...`);
+              setTimeout(() => {
+                trySendMessage(attempt - 1).then(resolve).catch(reject);
+              }, delay);
+            } else {
+              reject(new Error("Failed to send message after retries"));
+            }
+          } else {
+            console.log("Message sent successfully, response:", response);
+            resolve(response);
+          }
+        });
+      });
+    };
+
+    try {
+      await trySendMessage(retries);
+      // Update button color based on the new state
+      if (message.isEnabled) {
+        toggleButton.classList.add("enabled");
+      } else {
+        toggleButton.classList.remove("enabled");
+      }
+    } catch (error) {
+      console.error("Error sending message to the content script after retries:", error.message);
+      showError("Please refresh the page");
+    }
   }
 
   // Toggle button click handler

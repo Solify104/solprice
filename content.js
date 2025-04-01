@@ -348,6 +348,11 @@ function requestSolPrice() {
 }
 
 const debouncedConvertPrices = debounce(async () => {
+  if (!chrome.runtime || !chrome.runtime.id) {
+    console.error("Extension context invalidated, skipping price conversion.");
+    return;
+  }
+
   try {
     const pricesData = await requestSolPrice();
     convertPrices(pricesData);
@@ -360,7 +365,13 @@ function debounce(func, wait) {
   let timeout;
   return function (...args) {
     clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
+    timeout = setTimeout(() => {
+      if (!chrome.runtime || !chrome.runtime.id) {
+        console.error("Extension context invalidated, cancelling debounced function.");
+        return;
+      }
+      func.apply(this, args);
+    }, wait);
   };
 }
 
@@ -375,6 +386,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       revertPrices();
     }
     sendResponse({ status: "success" });
+  } else if (message.type === "ping") {
+    sendResponse({ status: "pong" });
   }
 });
 
@@ -392,7 +405,15 @@ observer.observe(document.body, {
 });
 
 // Simplified initial calls: one initial call after 2 seconds
-setTimeout(debouncedConvertPrices, 2000);
+const initialTimeout = setTimeout(debouncedConvertPrices, 2000);
+
+// Clean up on extension unload
+chrome.runtime.onSuspend.addListener(() => {
+  console.log("Extension is being unloaded, cleaning up...");
+  observer.disconnect();
+  clearTimeout(initialTimeout);
+  revertPrices();
+});
 
 chrome.storage.local.get("isEnabled", (data) => {
   isEnabled = data.isEnabled || false;
