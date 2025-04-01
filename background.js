@@ -5,7 +5,6 @@ let exchangeRates = {
   cadToUsdRate: 1,
   jpyToUsdRate: 1,
   cnyToUsdRate: 1,
-  aedToUsdRate: 1,
 };
 
 let isFetching = false; // Debounce flag to prevent overlapping fetches
@@ -48,7 +47,6 @@ async function fetchExchangeRates(attempts = 3, delay = 5000) {
           cadToUsdRate: data.exchangeRates.cadToUsdRate || 1,
           jpyToUsdRate: data.exchangeRates.jpyToUsdRate || 1,
           cnyToUsdRate: data.exchangeRates.cnyToUsdRate || 1,
-          aedToUsdRate: data.exchangeRates.aedToUsdRate || 1,
         };
         chrome.storage.local.set({ exchangeRates }, () => {
           console.log('Exchange rates updated:', exchangeRates);
@@ -99,7 +97,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         cadToUsdRate: exchangeRates.cadToUsdRate,
         jpyToUsdRate: exchangeRates.jpyToUsdRate,
         cnyToUsdRate: exchangeRates.cnyToUsdRate,
-        aedToUsdRate: exchangeRates.aedToUsdRate,
       },
     });
   }

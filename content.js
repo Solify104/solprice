@@ -55,7 +55,7 @@ function collectPriceAttributes(node, elements = []) {
     const attrs = node.attributes;
     for (let attr of attrs) {
       const attrValue = attr.value;
-      if (attrValue && /[£\$€C\$¥CN¥د\.إAED]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(attrValue)) {
+      if (attrValue && /[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(attrValue)) {
         elements.push({ element: node, attrName: attr.name, attrValue });
       }
     }
@@ -83,7 +83,7 @@ function collectAmazonPriceElements(node, elements = []) {
       const priceElement = node.querySelector(".a-offscreen");
       if (priceElement) {
         const priceText = priceElement.textContent.trim();
-        if (/[£\$€C\$¥CN¥د\.إAED]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
+        if (/[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/.test(priceText)) {
           elements.push({ element: priceElement, priceText });
         }
       }
@@ -117,7 +117,6 @@ function convertPrices(pricesData) {
   const cadToUsdRate = exchangeRates.cadToUsdRate || 1;
   const jpyToUsdRate = exchangeRates.jpyToUsdRate || 1;
   const cnyToUsdRate = exchangeRates.cnyToUsdRate || 1;
-  const aedToUsdRate = exchangeRates.aedToUsdRate || 1;
 
   console.log("convertPrices called with SOL price (in USD):", solPriceInUsd, "Exchange rates:", exchangeRates);
 
@@ -126,15 +125,13 @@ function convertPrices(pricesData) {
     return;
   }
 
-  const priceRegex = /[£\$€C\$¥CN¥د\.إAED]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/g;
+  const priceRegex = /[£\$€C\$¥CN¥]\s*\d{1,3}(,\d{3})*(\.\d{1,2})?\b/g;
   console.log("Testing priceRegex on $19.99:", priceRegex.test("$19.99"));
   console.log("Testing priceRegex on £29.99:", priceRegex.test("£29.99"));
   console.log("Testing priceRegex on €39.99:", priceRegex.test("€39.99"));
   console.log("Testing priceRegex on C$49.99:", priceRegex.test("C$49.99"));
   console.log("Testing priceRegex on ¥5999:", priceRegex.test("¥5999"));
   console.log("Testing priceRegex on CN¥6999:", priceRegex.test("CN¥6999"));
-  console.log("Testing priceRegex on د.إ799:", priceRegex.test("د.إ799"));
-  console.log("Testing priceRegex on AED899:", priceRegex.test("AED899"));
 
   const textNodes = collectTextNodes(document.body);
   console.log("Collected text nodes:", textNodes.length);
@@ -169,12 +166,9 @@ function convertPrices(pricesData) {
       } else if (priceText.startsWith("¥") || priceText.startsWith("CN¥")) {
         currency = priceText.startsWith("CN¥") ? "CNY" : "JPY";
         exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
-      } else if (priceText.startsWith("د.إ") || priceText.startsWith("AED")) {
-        currency = "AED";
-        exchangeRate = aedToUsdRate;
       }
 
-      let priceValue = parseFloat(priceText.replace(/[£\$€C\$¥CN¥د\.إAED,\s]/g, ""));
+      let priceValue = parseFloat(priceText.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
       priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${priceText} (${currency}) to ${solValue} SOL (Amazon price)`);
@@ -210,7 +204,7 @@ function convertPrices(pricesData) {
 
       if (!priceRegex.test(text)) {
         console.log("No price found in text, skipping:", text);
-        if (text.match(/[£\$€C\$¥CN¥د\.إAED]/)) {
+        if (text.match(/[£\$€C\$¥CN¥]/)) {
           console.log("Potential price not matched by regex:", text, "Parent element:", parent);
         }
         return;
@@ -246,12 +240,9 @@ function convertPrices(pricesData) {
       } else if (match.startsWith("¥") || match.startsWith("CN¥")) {
         currency = match.startsWith("CN¥") ? "CNY" : "JPY";
         exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
-      } else if (match.startsWith("د.إ") || match.startsWith("AED")) {
-        currency = "AED";
-        exchangeRate = aedToUsdRate;
       }
 
-      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥د\.إAED,\s]/g, ""));
+      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
       priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL`);
@@ -307,12 +298,9 @@ function convertPrices(pricesData) {
       } else if (match.startsWith("¥") || match.startsWith("CN¥")) {
         currency = match.startsWith("CN¥") ? "CNY" : "JPY";
         exchangeRate = currency === "CNY" ? cnyToUsdRate : jpyToUsdRate;
-      } else if (match.startsWith("د.إ") || match.startsWith("AED")) {
-        currency = "AED";
-        exchangeRate = aedToUsdRate;
       }
 
-      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥د\.إAED,\s]/g, ""));
+      let priceValue = parseFloat(match.replace(/[£\$€C\$¥CN¥,\s]/g, ""));
       priceValue *= exchangeRate; // Convert to USD
       const solValue = (priceValue / solPriceInUsd).toFixed(2);
       console.log(`Converted ${match} (${currency}) to ${solValue} SOL (from attribute)`);

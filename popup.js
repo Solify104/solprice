@@ -7,27 +7,24 @@ if (typeof document === "undefined" || !document.addEventListener) {
     const toggleButton = document.getElementById("toggleButton");
     const errorText = document.getElementById("errorText");
     const solPriceElement = document.getElementById("solPrice");
-    const exchangeRatesElement = document.getElementById("exchangeRates");
 
     // Check if DOM elements exist
-    if (!toggleButton || !errorText || !solPriceElement || !exchangeRatesElement) {
+    if (!toggleButton || !errorText || !solPriceElement) {
       console.error("One or more DOM elements are missing in popup.html:", {
         toggleButton,
         errorText,
         solPriceElement,
-        exchangeRatesElement,
       });
       return;
     }
 
-    // Function to fetch the live SOL price and exchange rates from the background script
+    // Function to fetch the live SOL price from the background script
     async function fetchSolPrice() {
       return new Promise((resolve) => {
         // Check if the extension context is still valid
         if (!chrome.runtime || !chrome.runtime.id) {
           console.error("Extension context invalidated, cannot fetch SOL price.");
           solPriceElement.textContent = "Price unavailable";
-          exchangeRatesElement.textContent = "Rates unavailable";
           resolve();
           return;
         }
@@ -36,7 +33,6 @@ if (typeof document === "undefined" || !document.addEventListener) {
           if (chrome.runtime.lastError) {
             console.error("Error fetching SOL price:", chrome.runtime.lastError.message);
             solPriceElement.textContent = "Price unavailable";
-            exchangeRatesElement.textContent = "Rates unavailable";
             resolve();
             return;
           }
@@ -45,23 +41,10 @@ if (typeof document === "undefined" || !document.addEventListener) {
             const price = response.exchangeRates.usd;
             solPriceElement.textContent = `$${price.toFixed(2)}`;
             console.log("SOL price updated in popup:", price);
-
-            // Display exchange rates
-            const rates = [
-              `GBP/USD: ${response.exchangeRates.gbpToUsdRate.toFixed(4)}`,
-              `EUR/USD: ${response.exchangeRates.eurToUsdRate.toFixed(4)}`,
-              `CAD/USD: ${response.exchangeRates.cadToUsdRate.toFixed(4)}`,
-              `JPY/USD: ${response.exchangeRates.jpyToUsdRate.toFixed(4)}`,
-              `CNY/USD: ${response.exchangeRates.cnyToUsdRate.toFixed(4)}`,
-              `AED/USD: ${response.exchangeRates.aedToUsdRate.toFixed(4)}`,
-            ];
-            exchangeRatesElement.innerHTML = rates.join("<br>");
-            console.log("Exchange rates updated in popup:", rates);
             resolve();
           } else {
             console.error("Failed to fetch SOL price, response:", response);
             solPriceElement.textContent = "Price unavailable";
-            exchangeRatesElement.textContent = "Rates unavailable";
             setTimeout(fetchSolPrice, 5000);
             resolve();
           }
